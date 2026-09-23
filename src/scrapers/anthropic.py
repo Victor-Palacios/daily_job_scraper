@@ -6,9 +6,13 @@ job-boards.greenhouse.io, and the page embeds the same departments payload this
 scraper reads. Reading the board API directly means no headless browser and no
 CSS selectors to rot when the careers page is restyled.
 
-Education roles live under the "Technical Education" department, which is what
-the careers page groups them under. Greenhouse also gives us a real posting date
-(`first_published`), so these jobs carry a `posted_date`.
+A job is kept if *either* its department looks like education (today "Technical
+Education", the grouping the careers page shows) *or* its title mentions
+education / instruction / training. Both run on every pass, so a teaching role
+filed under some other org still gets picked up.
+
+Greenhouse also gives us a real posting date (`first_published`), so these jobs
+carry a `posted_date`.
 """
 from __future__ import annotations
 
@@ -35,16 +39,28 @@ REQUEST_TIMEOUT = 30
 USER_AGENT = "daily_job_scraper (+https://github.com/Victor-Palacios/daily_job_scraper)"
 
 # Anthropic files these roles under "Technical Education". Matching the word
-# rather than the exact string keeps a rename to plain "Education" working.
+# rather than the exact string keeps a rename to plain "Education" working, and
+# catches a future "Education Labs" or plain "Education" department too.
 DEPARTMENT_RE = re.compile(r"\beducation\b", re.IGNORECASE)
 
-# Fallback, used *only* when the board has no education department at all (the
-# team was renamed or folded into another org). Without it a reorg would turn
-# into the silent "0 jobs forever" failure the README warns about. It is
-# deliberately not OR'd into the normal path: today it would also pull in
-# education-adjacent Sales roles, which isn't what this scraper is for.
-TITLE_FALLBACK_RE = re.compile(
-    r"\b(education|educator|instructor|curriculum|technical training|technical trainer)\b",
+# Title match, applied on every run alongside DEPARTMENT_RE (union, not a
+# fallback) so a teaching role filed under Sales, People, or anywhere else is
+# still caught.
+TITLE_RE = re.compile(
+    r"\b(education|educational|educator|instructor|instruction|instructional|"
+    r"teaching|teacher|trainer|training|curriculum|pedagog\w*|upskilling)\b",
+    re.IGNORECASE,
+)
+
+# "Training" is overloaded at an AI lab: without this, TITLE_RE's "training"
+# pulls in every pre-training / post-training research and infra role on the
+# board (5 of them as of this writing). These senses are never teaching roles,
+# so they're subtracted from the title match. A department hit still wins --
+# only TITLE_RE is filtered, so a genuinely education-department role named
+# "...Training Data..." would survive.
+ML_TRAINING_RE = re.compile(
+    r"\b(pre|post)[\s-]?training\b|\bpretraining\b|\bposttraining\b|"
+    r"\bmodel training\b|\btraining (data|infra\w*|cluster|stack|runtime|platform|compute)\b",
     re.IGNORECASE,
 )
 
@@ -61,8 +77,18 @@ class AnthropicScraper(BaseScraper):
             log.warning("Anthropic: board request failed (%s); returning 0", e)
             return []
 
-        jobs = jobs_from_departments(payload.get("departments") or [], company=self.company)
+        departments = payload.get("departments") or []
+        jobs = jobs_from_departments(departments, company=self.company)
         log.info("Anthropic: parsed %d jobs", len(jobs))
+        if departments and not jobs:
+            # The board loaded but nothing matched -- a reorg or a rename, not an
+            # empty board. Loud, because the README's failure mode is a scraper
+            # that quietly returns 0 forever.
+            log.warning(
+                "Anthropic: board returned %d departments but no education roles matched; "
+                "check DEPARTMENT_RE / TITLE_RE against %s",
+                len(departments), CAREERS_URL,
+            )
         return jobs
 
 
@@ -75,22 +101,21 @@ def _get_board() -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def is_education_role(department: str, title: str) -> bool:
+    """True if the department looks like education, or the title reads like one."""
+    if DEPARTMENT_RE.search(department or ""):
+        return True
+    return bool(TITLE_RE.search(title or "")) and not ML_TRAINING_RE.search(title or "")
+
+
 def jobs_from_departments(departments: list[dict], company: str = "Anthropic") -> list[Job]:
     """Map the Greenhouse departments payload to education `Job`s, newest first."""
-    matched = [d for d in departments if DEPARTMENT_RE.search(d.get("name") or "")]
-    if matched:
-        pairs = [(d.get("name") or "", j) for d in matched for j in (d.get("jobs") or [])]
-    else:
-        log.warning(
-            "Anthropic: no education department on the board; "
-            "falling back to a title keyword match"
-        )
-        pairs = [
-            (d.get("name") or "", j)
-            for d in departments
-            for j in (d.get("jobs") or [])
-            if TITLE_FALLBACK_RE.search(j.get("title") or "")
-        ]
+    pairs = [
+        (d.get("name") or "", j)
+        for d in departments
+        for j in (d.get("jobs") or [])
+        if is_education_role(d.get("name") or "", j.get("title") or "")
+    ]
 
     jobs: list[Job] = []
     seen_ids: set[str] = set()

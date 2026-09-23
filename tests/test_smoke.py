@@ -3,7 +3,7 @@ from datetime import date
 from pathlib import Path
 
 from src.scrapers.anthropic import _parse_published as anthropic_parse
-from src.scrapers.anthropic import jobs_from_departments
+from src.scrapers.anthropic import is_education_role, jobs_from_departments
 from src.scrapers.apple import _parse_posted as apple_parse
 from src.scrapers.base import Job
 from src.seen_store import SeenStore
@@ -24,12 +24,14 @@ def _raw_job(job_id: int, title: str, location: str, published: str | None) -> d
     }
 
 
-# Mirrors the live board: the education roles sit in "Technical Education", and
-# other departments carry education-adjacent titles that must NOT be picked up.
+# Mirrors the live board: education roles sit in "Technical Education", other
+# departments carry real teaching roles that MUST be picked up by title, and
+# AI Research carries pre/post-training roles that must NOT be.
 BOARD = [
     _dept(
         "Sales",
         _raw_job(1, "Developer Education Lead, Claude Platform", "Seattle, WA", "2026-09-18T15:41:44-04:00"),
+        _raw_job(2, "Enterprise Account Executive", "New York City, NY", "2026-09-10T09:00:00-04:00"),
     ),
     _dept(
         "Technical Education",
@@ -40,7 +42,10 @@ BOARD = [
     ),
     _dept(
         "AI Research & Engineering",
-        _raw_job(2, "Research Scientist, Deep Learning", "San Francisco, CA", "2026-09-01T09:00:00-04:00"),
+        _raw_job(3, "Research Engineer/Research Scientist, Pre-training",
+                 "San Francisco, CA", "2026-09-01T09:00:00-04:00"),
+        _raw_job(4, "Research Engineer, Production Model Post-Training",
+                 "San Francisco, CA", "2026-09-02T09:00:00-04:00"),
     ),
 ]
 
@@ -65,14 +70,59 @@ def test_anthropic_parse_published():
     assert anthropic_parse("nonsense") is None
 
 
-def test_anthropic_selects_only_the_education_department():
+def test_anthropic_matches_department_and_title():
+    """Department OR title, on every run — and no pre/post-training research roles."""
     jobs = jobs_from_departments(BOARD)
     assert [j.title for j in jobs] == [
-        "Head of Technical Training",              # newest first
+        "Developer Education Lead, Claude Platform",   # newest first; matched by title
+        "Head of Technical Training",                  # matched by department
         "Full Stack Engineer, Education Labs",
     ]
     assert all(j.company == "Anthropic" for j in jobs)
-    assert all(j.team == "Technical Education" for j in jobs)
+
+
+def test_anthropic_title_match_needs_no_education_department():
+    board = [
+        _dept("Sales", _raw_job(1, "Enterprise Account Executive", "NYC", None)),
+        _dept("People", _raw_job(2, "Lead Technical Instructor", "NYC", None)),
+        _dept("Marketing & Brand", _raw_job(3, "Curriculum Designer", "SF", None)),
+    ]
+    assert sorted(j.title for j in jobs_from_departments(board)) == [
+        "Curriculum Designer",
+        "Lead Technical Instructor",
+    ]
+
+
+def test_anthropic_keeps_teaching_titles():
+    for title in (
+        "Lead Technical Instructor",
+        "Head of Technical Training",
+        "Software Engineer, Education",
+        "Developer Education Lead, Claude Platform",
+        "GTM Enablement Trainer, Claude Products",
+        "Curriculum Designer",
+        "Instructional Designer",
+        "Head of Upskilling",
+    ):
+        assert is_education_role("Some Department", title), title
+
+
+def test_anthropic_excludes_ml_training_titles():
+    """'Training' at an AI lab is usually pre/post-training research, not teaching."""
+    for title in (
+        "Research Engineer/Research Scientist, Pre-training",
+        "Research Engineer, Production Model Post-Training",
+        "Pre-training Data Infrastructure Engineer",
+        "Pretraining Distributed Systems Tech Lead",
+        "Engineer, Model Training",
+        "Training Infrastructure Engineer",
+    ):
+        assert not is_education_role("AI Research & Engineering", title), title
+
+
+def test_anthropic_department_beats_the_ml_training_exclusion():
+    """An education-department role isn't dropped for saying 'training data'."""
+    assert is_education_role("Technical Education", "Engineer, Training Data Curation")
 
 
 def test_anthropic_maps_job_fields():
@@ -90,16 +140,6 @@ def test_anthropic_dedupes_job_listed_in_two_departments():
     jobs = jobs_from_departments(board)
     assert len(jobs) == 1
     assert jobs[0].posted_date is None
-
-
-def test_anthropic_falls_back_to_titles_when_department_is_gone():
-    """A board with no education department must not silently return 0."""
-    board = [
-        _dept("Sales", _raw_job(1, "Enterprise Account Executive", "NYC", None)),
-        _dept("People", _raw_job(2, "Lead Technical Instructor", "NYC", None)),
-    ]
-    jobs = jobs_from_departments(board)
-    assert [j.title for j in jobs] == ["Lead Technical Instructor"]
 
 
 def test_anthropic_skips_malformed_entries():

@@ -6,7 +6,7 @@ Automated GitHub Actions pipeline that watches [Anthropic's careers page](https:
 
 | Source | Status | Filter |
 | --- | --- | --- |
-| Anthropic | **active** | Greenhouse "Technical Education" department |
+| Anthropic | **active** | Education department **or** education/instructor/training in the title |
 | Apple | deactivated | — |
 | Google | deactivated | — |
 
@@ -16,7 +16,11 @@ Apple and Google are off but not deleted: `src/scrapers/apple.py` and `src/scrap
 
 - Runs 4x per day (00:00, 06:00, 12:00, 18:00 UTC) via `.github/workflows/scrape.yml`.
 - `anthropic.com/careers/jobs` is a server-rendered view of Anthropic's Greenhouse board — every "Apply" link on it points at `job-boards.greenhouse.io`, and the page embeds the same departments payload. So the scraper reads the board API directly (`boards-api.greenhouse.io/v1/boards/anthropic/departments?render_as=list`) instead of driving a headless browser. No Playwright, no CSS selectors to rot, one request per run.
-- Education roles are selected by **department**, matching any department whose name contains "education" — today that's "Technical Education", the same grouping the careers page shows. Selecting by department rather than by title keyword is what keeps `Technical Documentation and Content Engineer, Claude Docs` in (no education keyword in its title) and education-adjacent Sales roles out.
+- A job is kept if **either** test passes, and both run on every pass:
+  1. **Department** contains "education" — today "Technical Education", the same grouping the careers page shows. This is what catches `Technical Documentation and Content Engineer, Claude Docs`, which has no education keyword in its title.
+  2. **Title** matches `education`, `educator`, `instructor`, `instruction(al)`, `teaching`, `teacher`, `trainer`, `training`, `curriculum`, `pedagog*`, or `upskilling`. This catches teaching roles filed under other orgs — e.g. `Developer Education Lead, Claude Platform` under Sales.
+- One exception subtracts from the title test: "training" at an AI lab usually means **pre-training / post-training research**, not teaching. `ML_TRAINING_RE` drops those (`Pre-training Data Infrastructure Engineer`, `Research Engineer, Production Model Post-Training`, …) — 5 false positives on today's board. A department hit is never filtered this way, so an education-team role that happens to say "training data" still comes through.
+- Both regexes live at the top of `src/scrapers/anthropic.py` (`DEPARTMENT_RE`, `TITLE_RE`, `ML_TRAINING_RE`) and are the only thing to edit to widen or narrow the net.
 - Greenhouse exposes `first_published`, so every job carries a real posting date.
 - Dedupes against a rolling seen-jobs store (`.state/seen_jobs.json`); a job is "new" if its stable Greenhouse ID hasn't been seen within the store's TTL. Skips the email entirely when nothing new.
 
@@ -63,6 +67,7 @@ Trigger a test run from the **Actions** tab → **Daily Job Scrape** → **Run w
 ## Gotchas
 
 - **60-day inactivity rule**: GitHub automatically disables scheduled workflows if the repo has no commits for 60 days. Either push a small change periodically or add a keepalive action.
-- **Department renames**: The Anthropic scraper keys off a department name containing "education". If that department is renamed to something else entirely or folded into another org, the scraper falls back to a narrow title keyword match (`education`, `instructor`, `curriculum`, `technical training`, …) and logs a warning, rather than silently returning 0. The fallback is approximate — if you see that warning, check the board and update `DEPARTMENT_RE`.
+- **Nothing matched**: If the board loads but no role passes either test, the run logs a loud `no education roles matched` warning instead of quietly reporting 0. That means a reorg or a rename — check the careers page against `DEPARTMENT_RE` / `TITLE_RE`.
+- **Emails only cover *new* roles**: the seen-store means each role is emailed once. A run where nothing is new sends no email at all — that's success, not failure. To force a full digest (e.g. to test), run with `--reset-store`.
 - **Site DOM changes**: Only applies to the deactivated Apple/Google scrapers — they parse CSS selectors and will silently return 0 jobs if either site reworks its markup. The Actions logs show the "parsed N jobs" line for each company — watch for sudden drops.
 - **Cron drift**: GitHub cron jobs can be delayed by several minutes during high load. Don't schedule critical work to the exact minute.
