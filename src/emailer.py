@@ -24,7 +24,7 @@ def send_job_digest(jobs: list[Job], cfg: Config) -> None:
         return
 
     today = date.today().isoformat()
-    subject = f"[Daily Jobs] {len(jobs)} new DS/AI role(s) — {today}"
+    subject = f"[Daily Jobs] {len(jobs)} new role(s) — {today}"
 
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -49,7 +49,7 @@ def _group_by_company(jobs: list[Job]) -> dict[str, list[Job]]:
 
 
 def _plain_body(jobs: list[Job]) -> str:
-    lines = ["New Data Science / AI roles posted today:", ""]
+    lines = ["New roles posted today:", ""]
     for company, items in _group_by_company(jobs).items():
         lines.append(f"== {company} ({len(items)}) ==")
         for j in items:
@@ -63,7 +63,7 @@ def _plain_body(jobs: list[Job]) -> str:
 def _html_body(jobs: list[Job], today: str) -> str:
     parts = [
         "<html><body style='font-family: -apple-system, sans-serif; line-height: 1.5;'>",
-        f"<h2>New DS / AI roles — {escape(today)}</h2>",
+        f"<h2>New roles — {escape(today)}</h2>",
     ]
     for company, items in _group_by_company(jobs).items():
         parts.append(f"<h3>{escape(company)} ({len(items)})</h3><ul>")

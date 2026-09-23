@@ -8,14 +8,17 @@ import sys
 
 from .config import load
 from .emailer import send_job_digest
-from .scrapers.apple import AppleScraper
+from .scrapers.anthropic import AnthropicScraper
 from .scrapers.base import BaseScraper, Job
-from .scrapers.google import GoogleScraper
 from .seen_store import SeenStore
 
 log = logging.getLogger("djs")
 
-SCRAPERS: list[BaseScraper] = [AppleScraper(), GoogleScraper()]
+# Active sources. Apple and Google are deactivated: their scrapers still live in
+# src/scrapers/apple.py and src/scrapers/google.py, so re-enabling either one is
+# an import plus an entry in this list (they also need the Playwright browser
+# install that .github/workflows/scrape.yml no longer runs).
+SCRAPERS: list[BaseScraper] = [AnthropicScraper()]
 
 
 async def _scrape_one(scraper: BaseScraper) -> list[Job]:
@@ -52,7 +55,7 @@ async def run(dry_run: bool = False, reset_store: bool = False) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Daily job scraper \u2014 Apple + Google DS/AI")
+    parser = argparse.ArgumentParser(description="Daily job scraper \u2014 Anthropic Education roles")
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Scrape and log results without sending email or persisting the seen-store.",

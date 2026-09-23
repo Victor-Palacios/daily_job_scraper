@@ -26,8 +26,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Playwright browser
-        run: playwright install --with-deps chromium
+      # The active Anthropic scraper reads a JSON API, so no browser is needed.
+      # Re-enabling the Apple or Google scraper means restoring this step:
+      #   - name: Install Playwright browser
+      #     run: playwright install --with-deps chromium
 
       - name: Run scraper
         env:
