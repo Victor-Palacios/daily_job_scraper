@@ -68,7 +68,20 @@ MIN_CONTENT_MENTIONS = 2
 # If this fraction of a board's postings mention Claude, the mention is part of
 # the company template rather than the job, so descriptions stop being evidence
 # for that board and only the title and department count.
-BOILERPLATE_RATIO = 0.5
+#
+# Set from measured boards, because a firm with a real Claude practice looks
+# superficially like one with Claude boilerplate. Mention counts per sampled
+# non-teaching posting:
+#
+#   Caylent    [4, 4, 4, 4, 4, 6]     ratio 1.00  -- boilerplate (uniform, low)
+#   CodePath   [1, 1, 1, 5, 2, 1]     ratio 1.00  -- boilerplate
+#   NewRocket  [0, 0, 23, 23, 4, 0]   ratio 0.50  -- a Claude practice, not a template
+#
+# NewRocket's hits are genuine Claude reqs (Agentic AI Architect-Anthropic) next
+# to ServiceNow reqs that never mention it -- bimodal, where a template is
+# uniform. At 0.5 this was misread as boilerplate, which quietly stopped
+# descriptions counting on the single most relevant board. 0.8 sits in the gap.
+BOILERPLATE_RATIO = 0.8
 MIN_BASELINE_SAMPLE = 3
 
 

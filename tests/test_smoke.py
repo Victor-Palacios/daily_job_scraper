@@ -135,6 +135,20 @@ def test_looks_like_boilerplate():
     assert not looks_like_boilerplate([blurb, blurb])
 
 
+def test_claude_practice_is_not_boilerplate():
+    """A firm with real Claude work mentions it in some postings, not all.
+
+    NewRocket's non-teaching reqs are half Claude-focused and half ServiceNow;
+    reading that as a template silently stopped descriptions counting on the
+    most relevant board in the registry.
+    """
+    claude_req = "Build agentic systems on Claude. Deep Anthropic API experience."
+    other_req = "ServiceNow Solution Architect. ITSM implementation."
+    assert not looks_like_boilerplate([other_req, other_req, claude_req, claude_req, claude_req, other_req])
+    # A template still trips it even when a couple of postings omit it.
+    assert looks_like_boilerplate([claude_req] * 5 + [other_req])
+
+
 def test_baseline_sample_is_bounded_and_stable():
     rejected = [{"id": i} for i in range(100)]
     first = _baseline_sample(rejected)
