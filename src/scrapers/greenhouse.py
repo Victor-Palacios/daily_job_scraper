@@ -66,6 +66,8 @@ class GreenhouseScraper(BaseScraper):
                 else:
                     rejected.append(raw)
 
+        # Descriptions are fetched when the matcher needs them to decide, and
+        # also when it does not but we still want the pay figures out of them.
         content_trusted = True
         if self.matcher.needs_content:
             contents = await self._fetch_contents([raw for _, raw in shortlisted])
@@ -73,7 +75,7 @@ class GreenhouseScraper(BaseScraper):
             # those is template text, not the job. If most of them mention Claude,
             # descriptions carry no signal on this board.
             sample = await self._fetch_contents(_baseline_sample(rejected))
-            if looks_like_boilerplate(sample):
+            if looks_like_boilerplate(sample, self.matcher.subject_re):
                 content_trusted = False
                 log.info(
                     "%s: board mentions Claude in unrelated postings; "
@@ -81,7 +83,7 @@ class GreenhouseScraper(BaseScraper):
                     self.company,
                 )
         else:
-            contents = ["" for _ in shortlisted]
+            contents = await self._fetch_contents([raw for _, raw in shortlisted])
 
         jobs: list[Job] = []
         for (dept_name, raw), content in zip(shortlisted, contents):
@@ -100,6 +102,7 @@ class GreenhouseScraper(BaseScraper):
                 url=url,
                 posted_date=parse_published(raw.get("first_published")),
                 team=dept_name or None,
+                salary_text=content[:4000],
             ))
 
         jobs = dedupe_jobs(jobs)

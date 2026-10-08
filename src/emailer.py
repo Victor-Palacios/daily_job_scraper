@@ -48,6 +48,17 @@ def _group_by_company(jobs: list[Job]) -> dict[str, list[Job]]:
     return grouped
 
 
+def _pay(job: Job) -> str:
+    """Short pay label for the digest. Empty when the posting states nothing."""
+    sal = job.salary
+    if sal is None:
+        return ""
+    unit = "/yr equiv" if sal.hourly else ""
+    if sal.low == sal.high:
+        return f"${sal.low:,}{unit}"
+    return f"${sal.low:,}-${sal.high:,}{unit}"
+
+
 def _plain_body(jobs: list[Job]) -> str:
     lines = ["New roles posted today:", ""]
     for company, items in _group_by_company(jobs).items():

@@ -18,7 +18,7 @@ from .matchers import Matcher, looks_like_boilerplate
 
 log = logging.getLogger(__name__)
 
-BOARD_URL = "https://api.ashbyhq.com/posting-api/job-board/{token}"
+BOARD_URL = "https://api.ashbyhq.com/posting-api/job-board/{token}?includeCompensation=true"
 
 
 class AshbyScraper(BaseScraper):
@@ -64,7 +64,7 @@ def jobs_from_postings(raws: list[dict], company: str, matcher: Matcher) -> list
                 (r.get("department") or r.get("team") or "").strip(),
             )
         ]
-        if looks_like_boilerplate(rejected):
+        if looks_like_boilerplate(rejected, matcher.subject_re):
             content_trusted = False
             log.info(
                 "%s: board mentions Claude in unrelated postings; "
@@ -81,6 +81,10 @@ def jobs_from_postings(raws: list[dict], company: str, matcher: Matcher) -> list
         content = raw.get("descriptionPlain") or ""
         if not matcher.confirm(title, department, content, content_trusted):
             continue
+        # Ashby sometimes exposes a parsed range ("$180K - $290K"); when it
+        # does, trust it over whatever the prose says.
+        comp = (raw.get("compensation") or {}).get("scrapeableCompensationSalarySummary") or ""
+        salary_text = f"{comp}\n{content}" if comp else content
         job_id = str(raw.get("id") or "").strip()
         url = (raw.get("jobUrl") or raw.get("applyUrl") or "").strip()
         if not job_id or not title or not url:
@@ -93,6 +97,7 @@ def jobs_from_postings(raws: list[dict], company: str, matcher: Matcher) -> list
             url=url,
             posted_date=parse_published(raw.get("publishedAt")),
             team=department or None,
+            salary_text=salary_text[:4000],
         ))
 
     jobs = dedupe_jobs(jobs)

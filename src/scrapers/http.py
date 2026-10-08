@@ -31,3 +31,22 @@ def get_json(url: str) -> dict:
             return json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, OSError, TimeoutError, json.JSONDecodeError) as e:
         raise FetchError(f"{url}: {e}") from e
+
+
+def post_json(url: str, payload: dict) -> dict:
+    """POST JSON and parse the JSON reply. Workday's board API needs this."""
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, TimeoutError, json.JSONDecodeError) as e:
+        raise FetchError(f"{url}: {e}") from e

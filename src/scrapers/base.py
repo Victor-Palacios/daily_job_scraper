@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
+
+from .salary import Salary, parse_salary
 
 
 @dataclass(frozen=True)
@@ -15,10 +17,19 @@ class Job:
     url: str
     posted_date: date | None = None   # Apple has this; Google doesn't.
     team: str | None = None
+    # Description text to mine for pay. Carried rather than parsed at scrape
+    # time so the salary rules can change without re-scraping. Compared by
+    # identity only -- it is bulky and never part of what makes a job unique.
+    salary_text: str = field(default="", repr=False, compare=False)
 
     @property
     def dedup_key(self) -> str:
         return f"{self.company}::{self.job_id}"
+
+    @property
+    def salary(self) -> Salary | None:
+        """Annual range if the posting states one, else None (= unknown)."""
+        return parse_salary(self.salary_text)
 
 
 def dedupe_jobs(jobs: list[Job]) -> list[Job]:

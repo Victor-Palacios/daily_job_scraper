@@ -9,6 +9,7 @@ import sys
 from .config import load
 from .emailer import send_job_digest
 from .scrapers.base import BaseScraper, Job
+from .scrapers.salary import FALLBACK_FLOOR, PRIMARY_FLOOR, apply_floor
 from .seen_store import SeenStore
 from .sources import build_scrapers
 
@@ -35,6 +36,18 @@ async def run(dry_run: bool = False, reset_store: bool = False) -> int:
     all_jobs: list[Job] = [j for sub in results for j in sub]
     log.info("Scraped %d jobs total", len(all_jobs))
 
+    # Pay gate. Postings that state no range are kept either way, so this only
+    # ever removes roles we know pay below the floor.
+    scraped = len(all_jobs)
+    priced = sum(1 for j in all_jobs if j.salary is not None)
+    all_jobs, floor = apply_floor(all_jobs, PRIMARY_FLOOR, FALLBACK_FLOOR)
+    log.info(
+        "Pay floor $%s applied (%d of %d stated a range)%s: %d remain",
+        f"{floor:,}", priced, scraped,
+        "" if floor == PRIMARY_FLOOR else f" -- nothing cleared ${PRIMARY_FLOOR:,}, fell back",
+        len(all_jobs),
+    )
+
     store = SeenStore()
     if reset_store:
         log.warning("Resetting seen-store \u2014 every job will be treated as new.")
@@ -43,7 +56,12 @@ async def run(dry_run: bool = False, reset_store: bool = False) -> int:
     new_jobs = store.filter_new(all_jobs)
     log.info("New (unseen) jobs: %d", len(new_jobs))
     for j in new_jobs:
-        log.info("  [%s] %s \u2014 %s (%s)", j.company, j.title, j.location, j.posted_date or "?")
+        sal = j.salary
+        pay = f"{sal.low:,}-{sal.high:,}" if sal else "pay not stated"
+        log.info(
+            "  [%s] %s \u2014 %s (%s) [%s]",
+            j.company, j.title, j.location, j.posted_date or "?", pay,
+        )
 
     if dry_run:
         log.info("Dry-run: skipping email send and not persisting seen-store.")

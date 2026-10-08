@@ -7,10 +7,13 @@ from src.scrapers.ashby import jobs_from_postings
 from src.scrapers.base import Job, dedupe_jobs
 from src.scrapers.greenhouse import _baseline_sample, parse_published, strip_html
 from src.scrapers.matchers import (
+    AI_TEACHING,
     ANTHROPIC_EDUCATION,
     CLAUDE_TEACHING,
+    TEACHING_AT_AI_COMPANY,
     looks_like_boilerplate,
 )
+from src.scrapers.salary import Salary, apply_floor
 from src.seen_store import SeenStore
 
 
@@ -226,3 +229,98 @@ def test_seen_store_persists(tmp_path: Path):
     s2 = SeenStore(path=path)
     again = s2.filter_new([Job(company="Apple", job_id="X", title="t", location="", url="u")])
     assert again == []
+
+
+# --- salary parsing ---------------------------------------------------------
+
+def test_parse_salary_ranges():
+    from src.scrapers.salary import parse_salary
+    assert parse_salary("$180K - $290K") == Salary(180_000, 290_000)
+    assert parse_salary("$190,000 - $270,000") == Salary(190_000, 270_000)
+    assert parse_salary("$190,000 to $270,000") == Salary(190_000, 270_000)
+    assert parse_salary("compensation is $200,000") == Salary(200_000, 200_000)
+
+
+def test_parse_salary_handles_escaped_entities():
+    """Boards double-escape markup; a literal &mdash; hid the top of the range."""
+    from src.scrapers.salary import parse_salary
+    expected = Salary(270_000, 320_000)
+    assert parse_salary("Annual Salary: $270,000 &mdash; $320,000 USD") == expected
+    assert parse_salary("Annual Salary: $270,000 &amp;mdash; $320,000 USD") == expected
+    assert parse_salary("Annual Salary: $270,000 — $320,000 USD") == expected
+
+
+def test_parse_salary_annualizes_hourly():
+    from src.scrapers.salary import parse_salary
+    s = parse_salary("This role pays $80/hr")
+    assert s is not None and s.hourly and s.low == 80 * 2080
+
+
+def test_parse_salary_rejects_stray_amounts():
+    from src.scrapers.salary import parse_salary
+    assert parse_salary("win a $500 prize") is None
+    assert parse_salary("a $40M funding round") is None
+    assert parse_salary("no numbers here") is None
+    assert parse_salary("") is None
+
+
+# --- pay floor --------------------------------------------------------------
+
+def _priced(title, text):
+    return Job(company="C", job_id=title, title=title, location="", url="u", salary_text=text)
+
+
+def test_pay_floor_keeps_unknown_salaries():
+    """Most postings state no range; silence must not read as 'too low'."""
+    jobs = [_priced("quiet", "no pay here"), _priced("rich", "$210,000 - $260,000")]
+    kept, floor = apply_floor(jobs)
+    assert floor == 200_000
+    assert {j.title for j in kept} == {"quiet", "rich"}
+
+
+def test_pay_floor_drops_known_low_payers():
+    jobs = [_priced("low", "$120,000 - $150,000"), _priced("rich", "$210,000 - $260,000")]
+    kept, floor = apply_floor(jobs)
+    assert [j.title for j in kept] == ["rich"] and floor == 200_000
+
+
+def test_pay_floor_falls_back_when_nothing_clears_it():
+    jobs = [_priced("mid", "$150,000 - $190,000"), _priced("low", "$90,000 - $120,000")]
+    kept, floor = apply_floor(jobs)
+    assert floor == 180_000
+    assert [j.title for j in kept] == ["mid"]
+
+
+def test_pay_floor_uses_top_of_range():
+    assert apply_floor([_priced("wide", "$150,000 - $250,000")])[1] == 200_000
+
+
+# --- matcher routing --------------------------------------------------------
+
+def test_ai_company_matcher_keeps_untitled_teaching_roles():
+    """At an AI company every posting says AI, so only 'does it teach?' matters."""
+    for title in ("Technical Education Specialist", "Developer Advocate",
+                  "Applied AI Evangelism Director", "Product Education Engineer"):
+        assert TEACHING_AT_AI_COMPANY.shortlist(title, ""), title
+
+
+def test_ai_company_matcher_needs_no_content():
+    assert TEACHING_AT_AI_COMPANY.needs_content is False
+    assert TEACHING_AT_AI_COMPANY.confirm("Developer Advocate", "", "")
+
+
+def test_mid_training_is_excluded_like_pre_and_post():
+    assert not TEACHING_AT_AI_COMPANY.shortlist("Research Engineer, Mid-Training", "")
+    assert not AI_TEACHING.shortlist("Research Engineer, Mid-Training", "")
+
+
+def test_non_ai_teaching_subjects_are_excluded():
+    assert not TEACHING_AT_AI_COMPANY.shortlist(
+        "[Contract] Language Training Specialist - Japanese", "")
+
+
+def test_boilerplate_check_follows_the_matcher_subject():
+    """Booz Allen's 'Candidate AI Usage Policy' footer is AI boilerplate, not Claude."""
+    footer = "Candidate AI Usage Policy. AI is part of our daily work."
+    assert looks_like_boilerplate([footer] * 6, AI_TEACHING.subject_re)
+    assert not looks_like_boilerplate([footer] * 6, CLAUDE_TEACHING.subject_re)
