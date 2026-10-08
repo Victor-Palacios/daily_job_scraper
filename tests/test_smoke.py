@@ -324,3 +324,26 @@ def test_boilerplate_check_follows_the_matcher_subject():
     footer = "Candidate AI Usage Policy. AI is part of our daily work."
     assert looks_like_boilerplate([footer] * 6, AI_TEACHING.subject_re)
     assert not looks_like_boilerplate([footer] * 6, CLAUDE_TEACHING.subject_re)
+
+
+# --- email subject ----------------------------------------------------------
+
+def test_subject_starts_with_a_money_emoji():
+    from src.emailer import SUBJECT_PREFIX
+    assert SUBJECT_PREFIX == "\N{MONEY BAG}"
+
+
+def test_subject_survives_mime_header_encoding():
+    """Non-ASCII headers get RFC 2047 encoded; the emoji must decode back."""
+    from datetime import date
+    from email.header import decode_header, make_header
+    from email.message import EmailMessage
+
+    from src.emailer import SUBJECT_PREFIX
+
+    today = date.today().isoformat()
+    msg = EmailMessage()
+    msg["Subject"] = f"{SUBJECT_PREFIX} [Daily Jobs] 3 new role(s) — {today}"
+    decoded = str(make_header(decode_header(msg["Subject"])))
+    assert decoded.startswith("\N{MONEY BAG}")
+    assert "[Daily Jobs] 3 new role(s)" in decoded

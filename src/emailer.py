@@ -16,6 +16,11 @@ log = logging.getLogger(__name__)
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 
+# Leads every subject line, so the digest is recognisable at a glance in a
+# crowded inbox. Kept as a constant because it is the one piece of the subject
+# that is a preference rather than data.
+SUBJECT_PREFIX = "\N{MONEY BAG}"
+
 
 def send_job_digest(jobs: list[Job], cfg: Config) -> None:
     """Build and send a single HTML digest. No-op if `jobs` is empty."""
@@ -24,7 +29,7 @@ def send_job_digest(jobs: list[Job], cfg: Config) -> None:
         return
 
     today = date.today().isoformat()
-    subject = f"[Daily Jobs] {len(jobs)} new role(s) — {today}"
+    subject = f"{SUBJECT_PREFIX} [Daily Jobs] {len(jobs)} new role(s) — {today}"
 
     msg = EmailMessage()
     msg["Subject"] = subject

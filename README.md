@@ -49,6 +49,14 @@ Workday career sites look like SPAs but are backed by the same kind of unauthent
 
 Still absent: SmartRecruiters and bespoke SPAs, and firms too small for an ATS at all (ClaudeReadiness, OneWave AI) have no board to point at.
 
+## Email format
+
+Subjects lead with a money-bag emoji so the digest is spottable in a crowded inbox:
+
+    💰 [Daily Jobs] 9 new role(s) — 2026-10-08
+
+Change it via `SUBJECT_PREFIX` in `src/emailer.py`. Non-ASCII subjects are RFC 2047 encoded on the wire, which is normal and decodes back to the emoji in any mail client.
+
 ## Pay floor
 
 Roles are dropped when the posting states a range whose **top** is under **$200,000**. The top rather than the bottom, because a band as wide as "$180K - $290K" is set by level and is not a real cap on the role.
